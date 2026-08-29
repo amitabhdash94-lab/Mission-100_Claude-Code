@@ -114,7 +114,11 @@ fun BootScreen(modifier: Modifier = Modifier) {
 
             TerminalRow(
                 label = stringResource(R.string.boot_build_label),
-                value = "v${BuildConfig.VERSION_NAME} / ${BuildConfig.VERSION_CODE}",
+                value = stringResource(
+                    R.string.boot_build_value,
+                    BuildConfig.VERSION_NAME,
+                    BuildConfig.VERSION_CODE
+                ),
                 accent = NeuroColors.AcidGreen
             )
             TerminalRow(

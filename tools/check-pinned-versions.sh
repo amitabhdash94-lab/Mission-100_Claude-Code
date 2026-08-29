@@ -17,7 +17,8 @@
 set -uo pipefail
 
 CATALOG="${1:-gradle/libs.versions.toml}"
-BASE="https://dl.google.com/dl/android/maven2"
+GOOGLE="https://dl.google.com/dl/android/maven2"
+CENTRAL="https://repo1.maven.org/maven2"
 FAILED=0
 UNREACHABLE=0
 
@@ -28,14 +29,15 @@ pin() {
 }
 
 check() {
-  local label="$1" path="$2" pinned="$3"
+  # check <label> <group/path> <pinned> [repo-base, defaults to Google Maven]
+  local label="$1" path="$2" pinned="$3" base="${4:-$GOOGLE}"
   if [ -z "$pinned" ]; then
     echo "  ?? $label: no pin found in $CATALOG (key missing)"
     return 0
   fi
 
   local meta
-  if ! meta="$(curl -fsSL --max-time 45 --retry 3 --retry-delay 2 "$BASE/$path/maven-metadata.xml" 2>/dev/null)"; then
+  if ! meta="$(curl -fsSL --max-time 45 --retry 3 --retry-delay 2 "$base/$path/maven-metadata.xml" 2>/dev/null)"; then
     echo "  ~~ $label: could not fetch metadata (network/policy). Skipping, not failing."
     UNREACHABLE=1
     return 0
@@ -62,6 +64,12 @@ check "Compose BOM (composeBom)"     "androidx/compose/compose-bom"          "$(
 check "core-ktx (coreKtx)"           "androidx/core/core-ktx"                "$(pin coreKtx)"
 check "lifecycle (lifecycle)"        "androidx/lifecycle/lifecycle-runtime-ktx" "$(pin lifecycle)"
 check "activity-compose"             "androidx/activity/activity-compose"    "$(pin activityCompose)"
+
+# These live on Maven Central rather than Google's repository.
+check "Kotlin (kotlin)"              "org/jetbrains/kotlin/kotlin-gradle-plugin"        "$(pin kotlin)"    "$CENTRAL"
+check "Compose compiler plugin"      "org/jetbrains/kotlin/compose-compiler-gradle-plugin" "$(pin kotlin)" "$CENTRAL"
+check "coroutines"                   "org/jetbrains/kotlinx/kotlinx-coroutines-core"    "$(pin coroutines)" "$CENTRAL"
+check "JUnit (junit)"                "junit/junit"                                      "$(pin junit)"     "$CENTRAL"
 
 echo
 if [ "$FAILED" -ne 0 ]; then

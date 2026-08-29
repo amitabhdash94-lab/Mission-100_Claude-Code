@@ -236,9 +236,9 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: build-${{ github.run_number }}
-          name: NEUROFIT v${{ steps.apk.outputs.version }} build ${{ github.run_number }}
+          name: NEUROFIT v${{ steps.apk.outputs.version }} build ${{ github.run_number }}${{ steps.signing.outputs.mode == 'debug' && ' (DEBUG SIGNED)' || '' }}
           body: |
-            Release APK for Samsung Galaxy S23 Ultra (arm64-v8a, minSdk 31).
+            ${{ steps.signing.outputs.mode == 'debug' && '> **DEBUG SIGNED — do not install this if you want to keep your data.** No signing secrets are configured, so this APK carries the debug certificate. It installs on a clean phone, but no future release signed build can ever be installed over it without uninstalling first, which erases everything. Set up the four signing secrets (README section 1) and rebuild.' || 'Release APK for Samsung Galaxy S23 Ultra (arm64-v8a, minSdk 31).' }}
 
             Tap the `.apk` asset below in mobile Chrome to install.
             Play Protect will warn on first install. Choose "Install anyway".
@@ -249,7 +249,8 @@ jobs:
           # and still reports success, which looks green but delivers nothing.
           fail_on_unmatched_files: true
           draft: false
-          prerelease: false
+          prerelease: ${{ steps.signing.outputs.mode == 'debug' }}
+          make_latest: ${{ steps.signing.outputs.mode != 'debug' }}
 
       - name: Job summary
         if: always()

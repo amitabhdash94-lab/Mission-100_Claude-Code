@@ -3,6 +3,7 @@
     <string name="boot_status">NEUROFIT ONLINE</string>
     <string name="boot_subtitle">SYSTEM NOMINAL</string>
     <string name="boot_build_label">BUILD</string>
+    <string name="boot_build_value">v%1$s / %2$d</string>
     <string name="boot_pipeline_label">PIPELINE</string>
     <string name="boot_pipeline_value">GITHUB ACTIONS</string>
     <string name="boot_data_label">DATA</string>

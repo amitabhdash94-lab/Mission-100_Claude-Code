@@ -72,7 +72,9 @@ Push a change, wait for the green check, open the new release, download the new 
 over the top. Do not uninstall first. Your data is preserved because:
 
 - the signing key never changes, so Android accepts the package as an upgrade, and
-- `versionCode` is driven by `github.run_number`, so every build is strictly newer than the last.
+- `versionCode` is driven by `github.run_number`, so every new run is newer than the last.
+  (Re-running an existing run reuses its number, so it reproduces the same `versionCode`
+  rather than incrementing. That still installs, it is just not a newer build.)
 
 One consequence worth knowing: `github.run_number` is keyed to the workflow's identity, so
 **renaming `.github/workflows/build.yml` restarts it at 1**. That would send `versionCode`
@@ -126,16 +128,20 @@ Facts lookup is built in Phase 5, and that feature ships **off by default**.
 
 Recorded here as required, so nothing is a surprise later.
 
-1. **AGP 8.13.0 rather than AGP 9.x.** AGP 9 changed the DSL significantly and some third party
+1. **AGP 8.13.2 rather than AGP 9.x.** AGP 9 changed the DSL significantly and some third party
    Gradle plugins are still catching up. Since you cannot compile locally and every red run costs
-   several minutes, the last mature 8.x line is the right trade. It supports `compileSdk 36`.
-   The patch is pinned at `.0` deliberately: if the 8.13 line exists at all then 8.13.0 exists,
-   whereas a specific patch such as 8.13.2 only exists if that many patches were actually cut.
-   Both carry an identical Gradle, JDK and `compileSdk` contract, so `.0` is free insurance.
-   Gradle stays on the 8.x line for the same reason: AGP 8.x cannot run on Gradle 9.x.
+   several minutes, the last mature 8.x line is the right trade.
+   The patch level is load bearing, not cosmetic: Google's AGP 8.13 release notes list exactly one
+   feature for the whole line, *"Android Gradle plugin 8.13.2 uses R8 8.13.19 which supports
+   Kotlin 2.3"*. Since this project is on Kotlin 2.3.20, **8.13.2 is the minimum**, and dropping to
+   8.13.0 or 8.13.1 would pair Kotlin 2.3 with a toolchain that predates support for it.
+   The same notes give AGP 8.13's compatibility: maximum API level 36.1 (so `compileSdk 36` is
+   fine), minimum Gradle 8.13, minimum JDK 17. Gradle stays on the 8.x line because AGP 8.x
+   cannot run on Gradle 9.x.
 2. **`compileSdk` and `targetSdk` are 36.** That is the newest API level AGP 8.13 supports.
 3. **Compose BOM `2026.03.01`**, which pairs cleanly with Kotlin 2.3.20 and `compileSdk 36`.
-   Newer BOMs pull Compose versions that expect a newer AGP.
+   Newer BOMs pull Compose versions that expect a newer AGP. This BOM resolves the Compose
+   libraries to 1.12.0.
 4. **The Gradle wrapper JAR is not committed.** It is a binary file and cannot be authored as
    text. The build workflow generates it with `gradle wrapper` if it is missing, using the Gradle
    version pinned in `env.GRADLE_VERSION` and in `gradle/wrapper/gradle-wrapper.properties`.
@@ -165,7 +171,10 @@ Recorded here as required, so nothing is a surprise later.
     per the architecture rules.
 12. **Configuration cache is off** in `gradle.properties`. It is easy to turn on later and it is
     a common source of obscure failures with annotation processors, which arrive in Phase 3.
-13. **CI verifies the pinned versions before it builds.** `tools/check-pinned-versions.sh` fetches
+13. **Every version above was checked against Google's published release notes**, not recalled:
+    AGP 8.13.2 and its compatibility table, Compose BOM `2026.03.01`, `core-ktx 1.16.0`,
+    `lifecycle 2.9.4` and `activity-compose 1.10.1` all appear in the official documentation.
+14. **CI verifies the pinned versions before it builds.** `tools/check-pinned-versions.sh` fetches
     `maven-metadata.xml` for AGP, the Compose BOM and the androidx artifacts and fails in seconds
     if a pinned version was never published, printing the versions that do exist. A wrong version
     is otherwise a slow, opaque failure part way through a Gradle run. This matters because these
@@ -181,6 +190,10 @@ You do not need this, since CI is the only build that counts. If you ever do get
 ```
 cp keystore.properties.example keystore.properties
 # fill in storeFile, storePassword, keyAlias, keyPassword
+
+# gradlew is deliberately not committed (section 5, decision 4), so generate it once:
+gradle wrapper --gradle-version 8.14.3 --distribution-type bin
+
 ./gradlew assembleRelease
 ```
 
