@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      Framework theme parent on purpose: NEUROFIT does not depend on the
+      Material Components view library, only on Compose Material 3.
+    -->
+    <style name="Theme.NEUROFIT" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/background_void</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
+    </style>
+</resources>

@@ -1,0 +1,223 @@
+name: Build APK
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-${{ github.ref }}
+  # Never cancel a run that may already be publishing a release asset.
+  cancel-in-progress: false
+
+env:
+  GRADLE_VERSION: "8.14.3"
+
+jobs:
+  build:
+    name: Assemble release APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # The versions in gradle/libs.versions.toml cannot be verified from the
+      # machine this project is authored on, because Google's Maven repository is
+      # not reachable there. It IS reachable here, so check the pins in ten
+      # seconds rather than three minutes into a Gradle build.
+      - name: Verify pinned dependency versions
+        run: ./tools/check-pinned-versions.sh gradle/libs.versions.toml
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: ${{ env.GRADLE_VERSION }}
+          cache-read-only: false
+
+      # The wrapper JAR is a binary and is not committed to this repo.
+      # If it is absent, generate it here. If it is present, it is used as is.
+      - name: Ensure Gradle wrapper
+        run: |
+          set -euo pipefail
+          if [ ! -f gradle/wrapper/gradle-wrapper.jar ]; then
+            echo "Wrapper JAR missing. Generating with Gradle ${GRADLE_VERSION}."
+            gradle wrapper --gradle-version "${GRADLE_VERSION}" --distribution-type bin
+          else
+            echo "Wrapper JAR present."
+          fi
+          chmod +x gradlew
+          ./gradlew --version
+
+      - name: Check Android SDK
+        run: |
+          set -euo pipefail
+          SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          echo "ANDROID_HOME=$SDK"
+          echo "platforms:   $(ls "$SDK/platforms" 2>/dev/null | tr '\n' ' ')"
+          echo "build-tools: $(ls "$SDK/build-tools" 2>/dev/null | tr '\n' ' ')"
+          if [ ! -d "$SDK/platforms/android-36" ]; then
+            echo "::notice title=SDK::platform 36 absent, installing it."
+            yes | "$SDK/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null 2>&1 || true
+            "$SDK/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36" || \
+              echo "::warning title=SDK::Could not preinstall platform 36; AGP will try to fetch it."
+          fi
+
+      # Signing is all-or-nothing. All four secrets, or none of them. A partial
+      # set silently produces a DEBUG signed APK that cannot be installed over an
+      # existing release build, which is the single worst outcome for this project.
+      - name: Resolve signing mode
+        id: signing
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          COUNT=0
+          for v in "${KEYSTORE_BASE64:-}" "${KEYSTORE_PASSWORD:-}" "${KEY_ALIAS:-}" "${KEY_PASSWORD:-}"; do
+            [ -n "$v" ] && COUNT=$((COUNT + 1))
+          done
+
+          if [ "$COUNT" -eq 4 ]; then
+            echo "mode=release" >> "$GITHUB_OUTPUT"
+            mkdir -p keystore
+            printf '%s' "$KEYSTORE_BASE64" | base64 -d > keystore/release.jks
+            if [ ! -s keystore/release.jks ]; then
+              echo "::error title=Bad keystore::KEYSTORE_BASE64 did not decode to a file. Re-copy release.jks.base64 as one line."
+              exit 1
+            fi
+            echo "Release signing enabled. Keystore decoded ($(wc -c < keystore/release.jks) bytes)."
+          elif [ "$COUNT" -eq 0 ]; then
+            echo "mode=debug" >> "$GITHUB_OUTPUT"
+            echo "::warning title=No signing key::None of the four signing secrets are set. Falling back to DEBUG signing. This APK will NOT install as an upgrade over a release signed build. See README section 1."
+          else
+            echo "::error title=Partial signing config::Only ${COUNT} of the 4 signing secrets are set. Set all four (KEYSTORE_BASE64, KEYSTORE_PASSWORD, KEY_ALIAS, KEY_PASSWORD) or none. A partial set would silently produce a debug signed APK."
+            exit 1
+          fi
+
+      - name: Run unit tests
+        run: ./gradlew testReleaseUnitTest --no-daemon --stacktrace
+
+      - name: Upload test report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-test-report
+          path: app/build/reports/tests/
+          if-no-files-found: ignore
+
+      - name: Assemble release
+        env:
+          KEYSTORE_PATH: ${{ github.workspace }}/keystore/release.jks
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+          BUILD_NUMBER: ${{ github.run_number }}
+        run: ./gradlew assembleRelease --no-daemon --stacktrace
+
+      - name: Name the APK
+        id: apk
+        env:
+          BUILD_NUMBER: ${{ github.run_number }}
+        run: |
+          set -euo pipefail
+          VERSION_NAME="$(./gradlew -q :app:printVersionName --no-daemon | tail -n 1 | tr -d '[:space:]')"
+          if [ -z "$VERSION_NAME" ]; then
+            echo "::error title=No version::printVersionName produced no output."
+            exit 1
+          fi
+          SOURCE="$(find app/build/outputs/apk/release -name '*.apk' -type f 2>/dev/null | head -n 1 || true)"
+          if [ -z "$SOURCE" ]; then
+            echo "::error title=No APK::assembleRelease produced no APK under app/build/outputs/apk/release."
+            exit 1
+          fi
+          OUTPUT="neurofit-v${VERSION_NAME}-build${BUILD_NUMBER}.apk"
+          mv "$SOURCE" "$OUTPUT"
+          echo "path=${OUTPUT}" >> "$GITHUB_OUTPUT"
+          echo "version=${VERSION_NAME}" >> "$GITHUB_OUTPUT"
+          ls -lh "$OUTPUT"
+
+      # Proves the APK really carries the release certificate. Without this a
+      # misconfigured secret produces a debug signed APK that looks fine in CI and
+      # then refuses to install on the phone.
+      - name: Verify APK signature
+        env:
+          EXPECTED_MODE: ${{ steps.signing.outputs.mode }}
+        run: |
+          set -euo pipefail
+          SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          BUILD_TOOLS="$(ls -d "$SDK"/build-tools/* 2>/dev/null | sort -V | tail -n 1 || true)"
+          if [ -z "$BUILD_TOOLS" ] || [ ! -x "$BUILD_TOOLS/apksigner" ]; then
+            echo "::warning title=No apksigner::Could not verify the signature on this runner."
+            exit 0
+          fi
+          OUT="$("$BUILD_TOOLS/apksigner" verify --print-certs --verbose "${{ steps.apk.outputs.path }}")"
+          echo "$OUT"
+          if ! grep -q "Verified using v2 scheme (APK Signature Scheme v2): true" <<<"$OUT"; then
+            echo "::error title=Unsigned::APK is not v2 signed."
+            exit 1
+          fi
+          if grep -qi "CN=Android Debug" <<<"$OUT"; then
+            if [ "$EXPECTED_MODE" = "release" ]; then
+              echo "::error title=Debug signed::All four signing secrets were set but the APK carries the DEBUG certificate. It will not install over a release build. Check that KEY_ALIAS matches the alias inside the keystore."
+              exit 1
+            fi
+            echo "::warning title=Debug signed::APK carries the debug certificate, as expected with no signing secrets set."
+          else
+            echo "APK carries a release certificate."
+          fi
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: neurofit-apk
+          path: ${{ steps.apk.outputs.path }}
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish GitHub Release
+        if: github.ref_name == github.event.repository.default_branch
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.run_number }}
+          name: NEUROFIT v${{ steps.apk.outputs.version }} build ${{ github.run_number }}
+          body: |
+            Release APK for Samsung Galaxy S23 Ultra (arm64-v8a, minSdk 31).
+
+            Tap the `.apk` asset below in mobile Chrome to install.
+            Play Protect will warn on first install. Choose "Install anyway".
+            Installs cleanly over the previous build with data intact, as long as
+            the signing key is unchanged.
+          files: ${{ steps.apk.outputs.path }}
+          # Without this the action happily publishes a Release with no asset attached
+          # and still reports success, which looks green but delivers nothing.
+          fail_on_unmatched_files: true
+          draft: false
+          prerelease: false
+
+      - name: Job summary
+        if: always()
+        run: |
+          {
+            echo "### NEUROFIT build ${{ github.run_number }}"
+            echo ""
+            echo "| | |"
+            echo "| --- | --- |"
+            echo "| APK | \`${{ steps.apk.outputs.path }}\` |"
+            echo "| Version | ${{ steps.apk.outputs.version }} |"
+            echo "| versionCode | ${{ github.run_number }} |"
+            echo "| Signing | ${{ steps.signing.outputs.mode }} |"
+            echo ""
+            echo "Download it from the [Releases page](${{ github.server_url }}/${{ github.repository }}/releases/tag/build-${{ github.run_number }})."
+          } >> "$GITHUB_STEP_SUMMARY"

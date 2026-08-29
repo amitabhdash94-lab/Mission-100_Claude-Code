@@ -1,0 +1,27 @@
+# Signing material. NEVER commit this.
+keystore/
+keystore.properties
+*.jks
+*.keystore
+
+# Gradle
+.gradle/
+build/
+local.properties
+captures/
+.cxx/
+
+# IDE
+.idea/
+*.iml
+.DS_Store
+
+# Output
+*.apk
+*.aab
+*.apks
+
+# Gradle wrapper. Generated in CI, never committed. See README section 5, decision 4.
+/gradlew
+/gradlew.bat
+/gradle/wrapper/gradle-wrapper.jar

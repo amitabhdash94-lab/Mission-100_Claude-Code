@@ -1,0 +1,12 @@
+<resources>
+    <string name="app_name">NEUROFIT</string>
+    <string name="boot_status">NEUROFIT ONLINE</string>
+    <string name="boot_subtitle">SYSTEM NOMINAL</string>
+    <string name="boot_build_label">BUILD</string>
+    <string name="boot_pipeline_label">PIPELINE</string>
+    <string name="boot_pipeline_value">GITHUB ACTIONS</string>
+    <string name="boot_data_label">DATA</string>
+    <string name="boot_data_value">LOCAL ONLY</string>
+    <string name="boot_row_marker">&gt;</string>
+    <string name="cd_boot_panel">System status panel showing that the application launched successfully</string>
+</resources>
