@@ -65,6 +65,10 @@ jobs:
           else
             echo "Wrapper JAR present."
           fi
+          if [ ! -f gradlew ]; then
+            echo "::error title=No wrapper::gradle-wrapper.jar is present but gradlew is not. Delete gradle/wrapper/gradle-wrapper.jar so CI can regenerate the pair."
+            exit 1
+          fi
           chmod +x gradlew
           ./gradlew --version
 
@@ -142,7 +146,7 @@ jobs:
           BUILD_NUMBER: ${{ github.run_number }}
         run: |
           set -euo pipefail
-          VERSION_NAME="$(./gradlew -q :app:printVersionName | tail -n 1 | tr -d '[:space:]')"
+          VERSION_NAME="$(./gradlew -q --console=plain :app:printVersionName | tail -n 1 | tr -d '[:space:]')"
           if [ -z "$VERSION_NAME" ]; then
             echo "::error title=No version::printVersionName produced no output."
             exit 1

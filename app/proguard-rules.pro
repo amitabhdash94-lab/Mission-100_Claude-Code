@@ -13,6 +13,11 @@
 # Annotations are needed by Room, Hilt and kotlinx.serialization.
 -keepattributes *Annotation*, InnerClasses, Signature, Exceptions
 
+# NOTE ON -dontwarn: a blanket -dontwarn over a whole package also suppresses the
+# missing-class errors that are the only early warning that a keep rule is missing.
+# When R8 is switched on, replace these with the exact lines R8 prints into
+# app/build/outputs/mapping/release/missing_rules.txt rather than keeping them broad.
+
 # --- Kotlin ---------------------------------------------------------------
 -dontwarn kotlin.**
 -keep class kotlin.Metadata { *; }
@@ -50,8 +55,14 @@
 -keepattributes RuntimeVisibleAnnotations,RuntimeVisibleParameterAnnotations
 
 # --- WorkManager ----------------------------------------------------------
--keep class * extends androidx.work.Worker
--keep class * extends androidx.work.ListenableWorker { <init>(...); }
+# The constructor is the part that matters: WorkManager instantiates workers
+# reflectively through (Context, WorkerParameters). Keeping the class without
+# pinning that constructor lets R8 remove it, and the result is a
+# NoSuchMethodException on the phone when the job runs, with nothing visible in CI.
+# Worker extends ListenableWorker, so this single rule covers both.
+-keep class * extends androidx.work.ListenableWorker {
+    <init>(android.content.Context, androidx.work.WorkerParameters);
+}
 
 # --- ML Kit barcode (bundled model, added in a later phase) ---------------
 -keep class com.google.mlkit.** { *; }
