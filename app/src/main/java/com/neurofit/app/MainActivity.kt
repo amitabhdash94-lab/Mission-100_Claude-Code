@@ -2,6 +2,7 @@ package com.neurofit.app
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.core.LinearEasing
@@ -31,6 +32,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -43,7 +45,13 @@ import com.neurofit.app.ui.theme.NeuroFitTheme
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
-        enableEdgeToEdge()
+        // NEUROFIT is dark only. Without an explicit style enableEdgeToEdge follows the
+        // system light/dark setting, so on a phone in light mode the status bar and
+        // gesture handle would be drawn dark on our near black background and vanish.
+        enableEdgeToEdge(
+            statusBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
+            navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
+        )
         super.onCreate(savedInstanceState)
         setContent {
             NeuroFitTheme {
@@ -189,7 +197,10 @@ private fun PulseRule(modifier: Modifier = Modifier) {
 /** Static scanlines at low alpha. Becomes a toggleable overlay in Phase 2. */
 @Composable
 private fun ScanlineOverlay(modifier: Modifier = Modifier) {
-    Canvas(modifier = modifier) {
+    // graphicsLayer gives this Canvas its own retained render node. Without it the
+    // sibling PulseRule animation invalidates the whole view every frame and these
+    // several hundred drawLine calls are re-recorded forever, for a static overlay.
+    Canvas(modifier = modifier.graphicsLayer()) {
         val spacing = 4f
         val lineColor = NeuroColors.TextPrimary.copy(alpha = 0.03f)
         var y = 0f
