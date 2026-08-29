@@ -109,7 +109,13 @@ Facts lookup is built in Phase 5, and that feature ships **off by default**.
 - `android:allowBackup="false"` in the manifest.
 - `android:dataExtractionRules` points at `res/xml/data_extraction_rules.xml`, which excludes
   every domain from both Google cloud backup and device to device transfer.
-- `res/xml/backup_rules.xml` excludes everything as well, as a second layer.
+- `res/xml/backup_rules.xml` excludes everything as well. This is the legacy
+  `fullBackupContent` format, which the platform only honours on API 23 to 30, so at
+  `minSdk 31` it never actually runs. It is kept because it costs nothing and stops the
+  file being missing if the floor ever drops, but `allowBackup="false"` and the data
+  extraction rules are what do the work.
+- CI fails the build if the finished APK requests any permission at all, so the zero
+  permission claim above is checked against the artifact rather than trusted.
 - No analytics SDK, no crash reporting SDK, no Firebase, no ads, no telemetry.
 - Room database and photos live in app-private internal storage.
 - The app is fully functional in airplane mode.

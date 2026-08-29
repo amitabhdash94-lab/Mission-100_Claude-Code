@@ -188,6 +188,37 @@ jobs:
             echo "APK carries a release certificate."
           fi
 
+      # README section 3 promises Phase 1 ships with zero permissions. Reading the
+      # source manifest does not prove that: manifest merging can inject permissions
+      # from any dependency. Check the built APK instead, which is what installs.
+      # Later phases add their permissions to EXPECTED, one per line, and the README
+      # table stays the contract.
+      - name: Verify requested permissions
+        run: |
+          set -euo pipefail
+          EXPECTED=""
+          SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          BUILD_TOOLS="$(ls -d "$SDK"/build-tools/* 2>/dev/null | sort -V | tail -n 1 || true)"
+          ACTUAL=""
+          if [ -n "$BUILD_TOOLS" ] && [ -x "$BUILD_TOOLS/aapt2" ]; then
+            ACTUAL="$("$BUILD_TOOLS/aapt2" dump permissions "${{ steps.apk.outputs.path }}" 2>/dev/null \
+              | sed -n "s/^uses-permission: name='\([^']*\)'.*/\1/p" | sort -u)"
+          else
+            MERGED="$(find app/build -name AndroidManifest.xml -path '*merged*' -print -quit 2>/dev/null || true)"
+            if [ -z "$MERGED" ]; then
+              echo "::warning title=Permissions::Could not inspect the merged manifest; skipping the check."
+              exit 0
+            fi
+            ACTUAL="$(grep -o 'android:name="[^"]*"' "$MERGED" | sed 's/.*="//;s/"//' \
+              | grep -E '^android\.permission\.|permission' | sort -u || true)"
+          fi
+          echo "Permissions in the APK: ${ACTUAL:-<none>}"
+          if [ "$(printf '%s' "$ACTUAL" | sort -u)" != "$(printf '%s' "$EXPECTED" | sort -u)" ]; then
+            echo "::error title=Unexpected permissions::The APK requests permissions this phase does not declare. Expected: '${EXPECTED:-<none>}'. Got: '${ACTUAL:-<none>}'. Either a dependency injected one, or README section 3 and the EXPECTED list in this step need updating together."
+            exit 1
+          fi
+          echo "Zero permissions, as README section 3 promises."
+
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
