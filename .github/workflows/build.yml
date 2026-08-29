@@ -16,6 +16,10 @@ concurrency:
 env:
   GRADLE_VERSION: "8.14.3"
 
+# DO NOT RENAME THIS FILE. versionCode is github.run_number, and run_number is keyed
+# to the workflow's identity: renaming build.yml restarts it at 1, which sends
+# versionCode backwards and makes Android refuse every future upgrade.
+
 jobs:
   build:
     name: Assemble release APK
@@ -42,13 +46,19 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: ${{ env.GRADLE_VERSION }}
-          cache-read-only: false
 
       # The wrapper JAR is a binary and is not committed to this repo.
       # If it is absent, generate it here. If it is present, it is used as is.
       - name: Ensure Gradle wrapper
         run: |
           set -euo pipefail
+          # env.GRADLE_VERSION and gradle-wrapper.properties both pin a version.
+          # They must not drift, so fail loudly rather than silently building on one.
+          PINNED="$(sed -n 's|.*/gradle-\([0-9.]*\)-bin\.zip.*|\1|p' gradle/wrapper/gradle-wrapper.properties)"
+          if [ "$PINNED" != "$GRADLE_VERSION" ]; then
+            echo "::error title=Gradle version drift::gradle-wrapper.properties pins ${PINNED} but env.GRADLE_VERSION is ${GRADLE_VERSION}."
+            exit 1
+          fi
           if [ ! -f gradle/wrapper/gradle-wrapper.jar ]; then
             echo "Wrapper JAR missing. Generating with Gradle ${GRADLE_VERSION}."
             gradle wrapper --gradle-version "${GRADLE_VERSION}" --distribution-type bin
@@ -107,7 +117,7 @@ jobs:
           fi
 
       - name: Run unit tests
-        run: ./gradlew testReleaseUnitTest --no-daemon --stacktrace
+        run: ./gradlew testReleaseUnitTest --stacktrace
 
       - name: Upload test report on failure
         if: failure()
@@ -124,7 +134,7 @@ jobs:
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
           BUILD_NUMBER: ${{ github.run_number }}
-        run: ./gradlew assembleRelease --no-daemon --stacktrace
+        run: ./gradlew assembleRelease --stacktrace
 
       - name: Name the APK
         id: apk
@@ -132,7 +142,7 @@ jobs:
           BUILD_NUMBER: ${{ github.run_number }}
         run: |
           set -euo pipefail
-          VERSION_NAME="$(./gradlew -q :app:printVersionName --no-daemon | tail -n 1 | tr -d '[:space:]')"
+          VERSION_NAME="$(./gradlew -q :app:printVersionName | tail -n 1 | tr -d '[:space:]')"
           if [ -z "$VERSION_NAME" ]; then
             echo "::error title=No version::printVersionName produced no output."
             exit 1

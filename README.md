@@ -74,6 +74,11 @@ over the top. Do not uninstall first. Your data is preserved because:
 - the signing key never changes, so Android accepts the package as an upgrade, and
 - `versionCode` is driven by `github.run_number`, so every build is strictly newer than the last.
 
+One consequence worth knowing: `github.run_number` is keyed to the workflow's identity, so
+**renaming `.github/workflows/build.yml` restarts it at 1**. That would send `versionCode`
+backwards and Android would refuse every later upgrade. The file carries a comment saying so.
+If it ever has to be renamed, set an explicit offset in `app/build.gradle.kts` at the same time.
+
 ---
 
 ## 3. Permissions
